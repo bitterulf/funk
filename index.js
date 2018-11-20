@@ -22,7 +22,7 @@ const helloHandler = async function(request, h) {
         git.checkoutLatestTag((err, result) => {
             console.log(err, result);
             console.log('restart');
-            process.exit(1);
+            process.exit();
         })
     }, 1000);
 
