@@ -9,6 +9,7 @@ const Pack = require('./package');
 const FS = require('fs');
 const Util = require('util');
 const exec = Util.promisify(require('child_process').exec);
+const git = require('simple-git')();
 
 const server=Hapi.server({
     host:'localhost',
@@ -16,6 +17,14 @@ const server=Hapi.server({
 });
 
 const helloHandler = async function(request, h) {
+
+    setTimeout(function() {
+        git.checkoutLatestTag((err, result) => {
+            console.log(err, result);
+            console.log('restart');
+            process.exit(1);
+        })
+    }, 1000);
 
     return h.response('hello you');
 }
