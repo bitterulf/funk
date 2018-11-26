@@ -10,11 +10,58 @@ const FS = require('fs');
 const Util = require('util');
 const exec = Util.promisify(require('child_process').exec);
 const git = require('simple-git')();
+const Path = require('path');
+const Primus = require('primus');
+const shortid = require('shortid');
 
 const server=Hapi.server({
     host:'localhost',
-    port:8080
+    port:8080,
+    routes: {
+        files: {
+            relativeTo: Path.join(__dirname, 'public')
+        }
+    }
 });
+
+const primus = new Primus(server.listener, {/* options */});
+
+const runningGames = [];
+
+primus.on('connection', function (spark) {
+    if (spark.query.game) {
+        const game = runningGames.find(function(game) {
+            return game.id === spark.query.game;
+        })
+
+        if (game) {
+            spark.write({
+                type: 'gameState',
+                game: game
+            });
+
+            const token = shortid.generate();
+
+            spark.token = token;
+            spark.game = game.id;
+
+            spark.write({
+                type: 'token',
+                token: token
+            });
+        }
+    }
+    else {
+        spark.write({ games: runningGames});
+    }
+});
+
+const broadcastGames = function() {
+    primus.forEach(function (spark, id, connections) {
+        if (spark.query.game) return;
+        spark.write({ games: runningGames});
+    });
+};
 
 const helloHandler = async function(request, h) {
 
@@ -40,6 +87,98 @@ server.route({
     }
 });
 
+server.route({
+    method:'POST',
+    path:'/game',
+    options: {
+        handler: async function(request, h) {
+            const game = {
+                id: shortid.generate(),
+                name: request.payload.name,
+                state: {}
+            };
+
+            runningGames.push(game);
+            broadcastGames();
+
+            return h.response(game);
+        },
+        description: 'new game',
+        notes: 'new game',
+        tags: ['api'],
+        validate: {
+            payload: {
+                name: Joi.string().required()
+            }
+        }
+    }
+})
+
+function calcState(oldState, token, type, data) {
+    console.log('stateCalc', oldState, token, type, data);
+    if (type === 'setName') {
+        if (!oldState.users) {
+            oldState.users = [];
+        }
+
+        oldState.users.push({
+            token: token,
+            name: data.name
+        });
+
+        return oldState;
+    }
+
+    return oldState;
+};
+
+function doAction (gameId, token, type, data) {
+    const game = runningGames.find(function(game) {
+        return game.id === gameId;
+    })
+
+    if (!game) {
+        return;
+    };
+
+    game.state = calcState(game.state, token, type, data);
+
+    primus.forEach(function (spark, id, connections) {
+        if (spark.query.game != gameId) return;
+        spark.write({
+            type: 'gameState',
+            game: game
+        });
+    });
+}
+
+server.route({
+    method:'POST',
+    path:'/action',
+    options: {
+        handler: async function(request, h) {
+            primus.forEach(function (spark, id, connections) {
+                if (spark.token === request.payload.token) {
+                    console.log(spark.game, '!', request.payload);
+                    doAction(spark.game, spark.token, request.payload.type, request.payload.data);
+                }
+            });
+
+            return h.response('nice');
+        },
+        description: 'push action',
+        notes: 'push action',
+        tags: ['api'],
+        validate: {
+            payload: {
+                token: Joi.string().required(),
+                type: Joi.string().required(),
+                data: Joi.object().required()
+            }
+        }
+    }
+})
+
 const swaggerOptions = {
     info: {
         title: 'Test API Documentation',
@@ -56,6 +195,18 @@ async function start() {
             options: swaggerOptions
         }
     ]);
+
+    server.route({
+        method: 'GET',
+        path: '/{param*}',
+        handler: {
+            directory: {
+                path: '.',
+                redirectToSlash: true,
+                index: true,
+            }
+        }
+    });
 
     try {
         await server.start();
