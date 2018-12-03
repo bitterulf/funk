@@ -10,58 +10,64 @@ requirejs(
     function(Primus, m, window) {
         const urlParams = new URLSearchParams(window.location.search);
         const gameId = urlParams.get('game');
+        const profileName = urlParams.get('profile');
 
-        const primus = Primus.connect('/?game='+gameId);
+        const profiles = JSON.parse(localStorage.getItem('profiles')) || [];
+        const profile = profiles.find(function(entry) { return entry.name === profileName });
 
-        const state = {
-            token: null,
-            game: null
-        };
+        if (profile && profile.token) {
+            const primus = Primus.connect('/?game='+gameId+'&token='+profile.token);
 
-        primus.on('data', function(gameData) {
-            if (gameData.type === 'gameState') {
-                state.game = gameData.game
-                m.redraw();
-            } else if (gameData.type === 'token') {
-                state.token = gameData.token;
-                m.redraw();
-            }
-        });
+            const state = {
+                token: null,
+                game: null
+            };
 
-        m.mount(document.getElementById('root'), {
-            view: function() {
-                if (!state.game) {
-                    return m('div',
-                        m('h1', 'no game')
-                    );
+            primus.on('data', function(gameData) {
+                if (gameData.type === 'gameState') {
+                    state.game = gameData.game
+                    m.redraw();
+                } else if (gameData.type === 'token') {
+                    state.token = gameData.token;
+                    m.redraw();
                 }
+            });
 
-                console.log(state);
+            m.mount(document.getElementById('root'), {
+                view: function() {
+                    if (!state.game) {
+                        return m('div',
+                            m('h1', 'no game')
+                        );
+                    }
 
-                return m('div', [
-                    m('h1', state.game.id + ' - ' + state.game.name + '-' + state.token),
-                    m('div', (state.game.state.users || []).map(function(user) {
-                        return m('div', user.name);
-                    })),
-                    m('button', { onclick: function() {
-                        console.log('=>>', state.token);
-                            m.request({
-                                method: "POST",
-                                url: "/action",
-                                data: {
-                                    token: state.token,
-                                    type: 'setName',
+                    console.log(state);
+
+                    return m('div', [
+                        m('h1', state.game.id + ' - ' + state.game.name + '-' + state.token),
+                        m('div', (state.game.state.users || []).map(function(user) {
+                            return m('div', user.name);
+                        })),
+                        m('button', { onclick: function() {
+                            console.log('=>>', state.token);
+                                m.request({
+                                    method: "POST",
+                                    url: "/action",
                                     data: {
-                                        name: 'fritz'
+                                        token: state.token,
+                                        type: 'setName',
+                                        data: {
+                                            name: 'fritz'
+                                        }
                                     }
-                                }
-                            })
-                            .then(function(result) {
-                                console.log(result)
-                            })
-                    }}, 'push')
-                ]);
-            }
-        });
+                                })
+                                .then(function(result) {
+                                    console.log(result)
+                                })
+                        }}, 'push')
+                    ]);
+                }
+            });
+        }
     }
 );

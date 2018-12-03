@@ -13,6 +13,7 @@ const git = require('simple-git')();
 const Path = require('path');
 const Primus = require('primus');
 const shortid = require('shortid');
+const md5 = require('md5');
 
 const server=Hapi.server({
     host:'localhost',
@@ -40,14 +41,12 @@ primus.on('connection', function (spark) {
                 game: game
             });
 
-            const token = shortid.generate();
-
-            spark.token = token;
+            spark.token = spark.query.token;
             spark.game = game.id;
 
             spark.write({
                 type: 'token',
-                token: token
+                token: spark.token
             });
         }
     }
@@ -114,15 +113,26 @@ server.route({
     }
 })
 
+
 function calcState(oldState, token, type, data) {
     console.log('stateCalc', oldState, token, type, data);
+
+    const hashedToken = md5(token+'SomeStrangeText');
     if (type === 'setName') {
         if (!oldState.users) {
             oldState.users = [];
         }
 
+        const existingUser = oldState.users.find(function(user) {
+            return user.name === data.name || user.token === hashedToken;
+        });
+
+        if (existingUser) {
+            return oldState;
+        }
+
         oldState.users.push({
-            token: token,
+            token: hashedToken,
             name: data.name
         });
 
